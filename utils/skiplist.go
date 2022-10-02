@@ -44,7 +44,7 @@ type Element struct {
 
 func newElement(score float64, entry *codec.Entry, level int) *Element {
 	return &Element{
-		levels: make([]*Element, level + 1),
+		levels: make([]*Element, level+1),
 		entry:  entry,
 		score:  score,
 	}
@@ -54,41 +54,46 @@ func (elem *Element) Entry() *codec.Entry {
 	return elem.entry
 }
 
-func (list *SkipList) Add(data *codec.Entry) error {
+func (list *SkipList) Add(newData *codec.Entry) error {
 	//implement me here!!!
 	list.lock.Lock()
 	defer list.lock.Unlock()
 
-	prevs := make([]*Element, list.maxLevel + 1)
+	prevElementsOfNewData := make([]*Element, list.maxLevel+1) // to save the previous elements of all levels of new one
 
-	key := data.Key
-	keyScore := list.calcScore(key)
+	newKey := newData.Key
+	newKeyScore := list.calcScore(newKey)
 	header, maxLevel := list.header, list.maxLevel
 	prev := header
-	for i := maxLevel; i >= 0; i -- {
-		for ne := prev.levels[i]; ne != nil; ne = prev.levels[i] {
-			if comp := list.compare(keyScore, key, ne); comp <= 0 {
+
+	// find inserting position
+	for i := maxLevel; i >= 0; i-- {
+		for next := prev.levels[i]; next != nil; next = prev.levels[i] {
+			if comp := list.compare(newKeyScore, newKey, next); comp <= 0 {
 				if comp == 0 {
-					// 更新数据
-					ne.entry = data
+					// update operation rather than insert new one
+					next.entry = newData
 					return nil
-				} else {
-					prev = ne
+				} else { // new value is greater than next value
+					prev = next
 				}
 			} else {
+				// new value must be between the prev and next element
+				// found the correct interval for the current level, we need to break and move to the next level (-1)
 				break
 			}
 		}
-		prevs[i] = prev
+		prevElementsOfNewData[i] = prev
 	}
 
-	randLevel, keyScore := list.randLevel(), list.calcScore(key)
-	e := newElement(keyScore, data, randLevel)
+	randomMaxLevelForNewData, newKeyScore := list.randLevel(), list.calcScore(newKey)
+	currElement := newElement(newKeyScore, newData, randomMaxLevelForNewData)
 
-	for i := randLevel; i >= 0; i -- {
-		ne := prevs[i].levels[i]
-		prevs[i].levels[i] = e
-		e.levels[i] = ne
+	// start inserting
+	for i := randomMaxLevelForNewData; i >= 0; i-- {
+		nextElement := prevElementsOfNewData[i].levels[i]
+		prevElementsOfNewData[i].levels[i] = currElement
+		currElement.levels[i] = nextElement
 	}
 	return nil
 }
@@ -101,13 +106,13 @@ func (list *SkipList) Search(key []byte) (e *codec.Entry) {
 	keyScore := list.calcScore(key)
 	header, maxLevel := list.header, list.maxLevel
 	prev := header
-	for i := maxLevel; i >= 0; i -- {
-		for ne := prev.levels[i]; ne != nil; ne = prev.levels[i] {
-			if comp := list.compare(keyScore, key, ne); comp <= 0 {
+	for i := maxLevel; i >= 0; i-- {
+		for next := prev.levels[i]; next != nil; next = prev.levels[i] {
+			if comp := list.compare(keyScore, key, next); comp <= 0 {
 				if comp == 0 {
-					return ne.entry
+					return next.entry
 				} else {
-					prev = ne
+					prev = next
 				}
 			} else {
 				break
@@ -130,7 +135,7 @@ func (list *SkipList) calcScore(key []byte) (score float64) {
 	}
 
 	for i := 0; i < l; i++ {
-		shift := uint(64 - 8 - i*8)
+		shift := uint(64 - (i+1)*8)
 		hash |= uint64(key[i]) << shift
 	}
 
@@ -157,7 +162,7 @@ func (list *SkipList) randLevel() int {
 	// 有 1/4 的几率返回 2
 	// 有 1/8 的几率返回 3
 	// 直到最大层
-	for i := 0; i < list.maxLevel; i ++ {
+	for i := 0; i < list.maxLevel; i++ {
 		if list.rand.Intn(2) == 0 {
 			return i
 		}

@@ -185,13 +185,13 @@ func (s *Skiplist) getHead() *node {
 // node.key >= key (if allowEqual=true).
 // Returns the node found. The bool returned is true if the node has key equal to given key.
 func (s *Skiplist) findNear(key []byte, less bool, allowEqual bool) (*node, bool) {
-	x := s.getHead()
+	prev := s.getHead()
 	level := int(s.getHeight() - 1)
 	for {
-		// Assume x.key < key.
-		next := s.getNext(x, level)
+		// Assume prev.key < key.
+		next := s.getNext(prev, level)
 		if next == nil {
-			// x.key < key < END OF LIST
+			// prev.key < key < END OF LIST
 			if level > 0 {
 				// Can descend further to iterate closer to the end.
 				level--
@@ -201,22 +201,22 @@ func (s *Skiplist) findNear(key []byte, less bool, allowEqual bool) (*node, bool
 			if !less {
 				return nil, false
 			}
-			// Try to return x. Make sure it is not a head node.
-			if x == s.getHead() {
+			// Try to return prev. Make sure it is not a head node.
+			if prev == s.getHead() {
 				return nil, false
 			}
-			return x, false
+			return prev, false
 		}
 
 		nextKey := next.key(s.arena)
 		cmp := CompareKeys(key, nextKey)
 		if cmp > 0 {
-			// x.key < next.key < key. We can continue to move right.
-			x = next
+			// prev.key < next.key < key. We can continue to move right.
+			prev = next
 			continue
 		}
 		if cmp == 0 {
-			// x.key < key == next.key.
+			// prev.key < key == next.key.
 			if allowEqual {
 				return next, true
 			}
@@ -229,26 +229,26 @@ func (s *Skiplist) findNear(key []byte, less bool, allowEqual bool) (*node, bool
 				level--
 				continue
 			}
-			// On base level. Return x.
-			if x == s.getHead() {
+			// On base level. Return prev.
+			if prev == s.getHead() {
 				return nil, false
 			}
-			return x, false
+			return prev, false
 		}
-		// cmp < 0. In other words, x.key < key < next.
+		// cmp < 0. In other words, prev.key < key < next.
 		if level > 0 {
 			level--
 			continue
 		}
-		// At base level. Need to return something.
+		// At base level (). Need to return something.
 		if !less {
 			return next, false
 		}
-		// Try to return x. Make sure it is not a head node.
-		if x == s.getHead() {
+		// Try to return prev. Make sure it is not a head node.
+		if prev == s.getHead() {
 			return nil, false
 		}
-		return x, false
+		return prev, false
 	}
 }
 
@@ -344,11 +344,13 @@ func (s *Skiplist) Add(e *Entry) {
 				// Managed to insert x between prev[i] and next[i]. Go to the next level.
 				break
 			}
-			// CAS failed. We need to recompute prev and next.
+			// CAS failed, which means there was a new key added to skiplist after the last prev & next computation.
+			// Thus, We need to recompute prev and next to ensure the correct structure.
 			// It is unlikely to be helpful to try to use a different level as we redo the search,
 			// because it is unlikely that lots of nodes are inserted between prev[i] and next[i].
 			prev[i], next[i] = s.findSpliceForLevel(key, prev[i], i)
 			if prev[i] == next[i] {
+				// update value can only occur in the base level since it does not alter the structure and return immediately
 				AssertTruef(i == 0, "Equality can happen only on base level: %d", i)
 				vo := s.arena.putVal(v)
 				encValue := encodeValue(vo, v.EncodedSize())
@@ -448,11 +450,15 @@ func (s *SkipListIterator) Valid() bool { return s.n != nil }
 // Key returns the key at the current position.
 func (s *SkipListIterator) Key() []byte {
 	//implement me here
+	AssertTrue(s.Valid())
+	return s.n.key(s.list.arena)
 }
 
 // Value returns value.
 func (s *SkipListIterator) Value() ValueStruct {
 	//implement me here
+	AssertTrue(s.Valid())
+	return s.list.arena.getVal(s.n.getValueOffset())
 }
 
 // ValueUint64 returns the uint64 value of the current node.
@@ -475,16 +481,20 @@ func (s *SkipListIterator) Prev() {
 // 找到 >= target 的第一个节点
 func (s *SkipListIterator) Seek(target []byte) {
 	//implement me here
+	s.n, _ = s.list.findNear(target, false /*less*/, true /* allowEqual */)
 }
 
 // 找到 <= target 的第一个节点
 func (s *SkipListIterator) SeekForPrev(target []byte) {
 	//implement me here
+	s.n, _ = s.list.findNear(target, true /*less*/, true /* allowEqual */)
 }
 
-//定位到链表的第一个节点
+// 定位到链表的第一个节点
 func (s *SkipListIterator) SeekToFirst() {
 	//implement me here
+	headNode := s.list.getHead()
+	s.n = s.list.getNext(headNode, 0)
 }
 
 // SeekToLast seeks position at the last entry in list.
@@ -502,6 +512,7 @@ type UniIterator struct {
 }
 
 // FastRand is a fast thread local random function.
+//
 //go:linkname FastRand runtime.fastrand
 func FastRand() uint32
 

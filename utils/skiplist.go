@@ -13,7 +13,7 @@ type SkipList struct {
 	maxLevel   int          //sl的最大高度
 	lock       sync.RWMutex //读写锁，用来实现并发安全的sl
 	currHeight int32        //sl当前的最大高度
-	headOffset uint32       //头结点在arena当中的偏移量
+	headOffset uint32       //头结点在arena当中的偏移量 dummy node
 	arena      *Arena
 }
 
@@ -31,11 +31,15 @@ func NewSkipList(arenaSize int64) *SkipList {
 }
 
 func newElement(arena *Arena, key []byte, v ValueStruct, height int) *Element {
+	// node means Element. and we only assign the space to the new element
 	nodeOffset := arena.putNode(height)
 
 	keyOffset := arena.putKey(key)
 	val := encodeValue(arena.putVal(v), v.EncodedSize())
 
+	// modify element value here
+	// 1. use nodeOffset to get the address of the element
+	// 2. convert pointer to *Element in getElement() (like cast void pointer to specific pointer type in c/c++)
 	elem := arena.getElement(nodeOffset) //这里的elem是根据内存中的地址来读取的，不是arena中的offset
 	elem.score = calcScore(key)
 	elem.keyOffset = keyOffset
@@ -46,8 +50,8 @@ func newElement(arena *Arena, key []byte, v ValueStruct, height int) *Element {
 	return elem
 }
 
-//用来对value值进行编解码
-//value = valueSize | valueOffset
+// 用来对value值进行编解码
+// value = valueSize | valueOffset
 func encodeValue(valOffset uint32, valSize uint32) uint64 {
 	return uint64(valSize)<<32 | uint64(valOffset)
 }
@@ -89,29 +93,36 @@ func (list *SkipList) Add(data *Entry) error {
 
 	//从当前最大高度开始
 	max := list.currHeight
-	//拿到头节点，从第一个开始
+	//拿到头节点，从第一个开始 dummy node
 	prevElem := list.arena.getElement(list.headOffset)
 	//用来记录访问路径
 	var prevElemHeaders [defaultMaxLevel]*Element
 
 	for i := max - 1; i >= 0; {
-		//keep visit path here
+		// for every height i, we need to find the new element's position
+
+		// keep visit path here
 		prevElemHeaders[i] = prevElem
 
+		// iterate over the element at the "i"th level
 		for next := list.getNext(prevElem, int(i)); next != nil; next = list.getNext(prevElem, int(i)) {
 			if comp := list.compare(score, data.Key, next); comp <= 0 {
 				if comp == 0 {
+					// new element's key exists in the skipList, all we need to do is to update value
 					vo := list.arena.putVal(value)
 					encV := encodeValue(vo, value.EncodedSize())
 					next.value = encV
 					return nil
 				}
 
-				//find the insert position
+				// new element's key is less than "next", which means we find the insert position
 				break
 			}
 
-			//just like linked-list next
+			// new element's key is greater than "next", we need to:
+			// 1. update prev element info for new element
+			// 2. move to the next element of "next"
+			// just like linked-list next
 			prevElem = next
 			prevElemHeaders[i] = prevElem
 		}
@@ -130,7 +141,9 @@ func (list *SkipList) Add(data *Entry) error {
 	//to add elem to the skiplist
 	off := list.arena.getElementOffset(elem)
 	for i := 0; i < level; i++ {
+		// update next pointers for new element
 		elem.levels[i] = prevElemHeaders[i].levels[i]
+		// update previous elements' next pointers to new element
 		prevElemHeaders[i].levels[i] = off
 	}
 
@@ -217,8 +230,8 @@ func (list *SkipList) randLevel() int {
 	return i
 }
 
-//拿到某个节点，在某个高度上的next节点
-//如果该节点已经是该层最后一个节点（该节点的level[height]将是0），会返回nil
+// 拿到某个节点，在某个高度上的next节点
+// 如果该节点已经是该层最后一个节点（该节点的level[height]将是0），会返回nil
 func (list *SkipList) getNext(e *Element, height int) *Element {
 	return list.arena.getElement(e.getNextOffset(height))
 }

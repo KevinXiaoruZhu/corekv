@@ -14,8 +14,8 @@ type Arena struct {
 
 const MaxNodeSize = int(unsafe.Sizeof(Element{}))
 
-const offsetSize = int(unsafe.Sizeof(uint32(0)))
-const nodeAlign = int(unsafe.Sizeof(uint64(0))) - 1
+const offsetSize = int(unsafe.Sizeof(uint32(0)))    // 4 bytes
+const nodeAlign = int(unsafe.Sizeof(uint64(0))) - 1 // 8 - 1 bytes
 
 func newArena(n int64) *Arena {
 	out := &Arena{
@@ -32,16 +32,16 @@ func (s *Arena) allocate(sz uint32) uint32 {
 	buflen := len(s.buf)
 	//如果剩下的空间 不足以分配给下一个
 	if buflen-int(offset) < MaxNodeSize {
-		groupby := uint32(len(s.buf))
-		if groupby < 1<<30 {
-			groupby = 1 << 30
+		grewBy := uint32(len(s.buf))
+		if grewBy < 1<<30 {
+			grewBy = 1 << 30
 		}
 
-		if groupby < sz {
-			groupby = sz
+		if grewBy < sz {
+			grewBy = sz
 		}
 
-		newbuf := make([]byte, uint32(len(s.buf))+groupby)
+		newbuf := make([]byte, uint32(len(s.buf))+grewBy)
 		AssertTrue(len(s.buf) == copy(newbuf, s.buf))
 		s.buf = newbuf
 	}
@@ -49,20 +49,25 @@ func (s *Arena) allocate(sz uint32) uint32 {
 	return offset - sz
 }
 
-//在arena里开辟一块空间，用以存放sl中的节点
-//返回值为在arena中的offset
+// 在arena里开辟一块空间，用以存放sl中的节点
+// 返回值为在arena中的offset
 func (s *Arena) putNode(height int) uint32 {
 	//implement me here！！！
 	// 这里的 node 要保存 value 、key 和 next 指针值
 	// 所以要计算清楚需要申请多大的内存空间
 
 	// levels 里面需要的大小
-	unusedsize := (defaultMaxLevel - height) * offsetSize
-
-	l := uint32(MaxNodeSize - unusedsize + nodeAlign)
+	unusedSize := (defaultMaxLevel - height) * offsetSize
+	actualNodeSize := MaxNodeSize - unusedSize
+	l := uint32(actualNodeSize + nodeAlign)
+	// add nodeAlign in advance to reverse the enough space for this node after alignment (below)
+	// (i.e. nodeAlign is ...0111 when address is 8-bits aligned)
+	// 计算l的时候加了nodeAlign是为了给内存对齐预留足够的空间，这样能够保证m是内存对齐的地址，又能保证新node在对齐后不越界
 
 	n := s.allocate(uint32(l))
-	//内存对齐
+	// Memory alignment - round up: https://hardcore.feishu.cn/docs/doccnfpU9dnnGeDC1iMXkuERFGc
+	// why we need memory alignment: https://stackoverflow.com/questions/381244/purpose-of-memory-alignment
+	// offset n from Arena might not be a memory-aligned address, so we need to padding some bytes to make it aligned (move to m)
 	m := (n + uint32(nodeAlign)) & ^uint32(nodeAlign)
 	return m
 }
@@ -109,7 +114,7 @@ func (s *Arena) getVal(offset uint32, size uint32) (v ValueStruct) {
 	return
 }
 
-//用element在内存中的地址 - arena首字节的内存地址，得到在arena中的偏移量
+// 用element在内存中的地址 - arena首字节的内存地址，得到在arena中的偏移量
 func (s *Arena) getElementOffset(nd *Element) uint32 {
 	//implement me here！！！
 	//获取某个节点，在 arena 当中的偏移量

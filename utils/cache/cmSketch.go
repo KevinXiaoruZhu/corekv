@@ -87,6 +87,7 @@ func next2Power(x int64) int64 {
 	return x
 }
 
+// ref: https://florian.github.io/count-min-sketch/
 type cmRow []byte
 
 func newCmRow(numCounters int64) cmRow {
@@ -94,6 +95,10 @@ func newCmRow(numCounters int64) cmRow {
 }
 
 func (r cmRow) get(n uint64) byte {
+	// 1. the idx is n/2 because we store 2 4-bit counters into 1 byte
+	// 2. n&1 -> when n is odd number, we need a 4-bit right shift
+	// 3. n&1 -> when n is even number, there's no shift action since the lower address is the even idx
+	// 4. 0x0f is used to clear the bits on higher address (4-bit based)
 	return r[n/2] >> ((n & 1) * 4) & 0x0f
 }
 

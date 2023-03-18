@@ -75,8 +75,13 @@ func (s *cmSketch) Clear() {
 }
 
 // 快速计算大于 X，且最接近 X 的二次幂
+// "bit smearing": leverage the right bit-shift ops to ensure that all the bits to the right of the first 1 are 1s:
+// b'1xxxxxxx...' x
+// b'11xxxxxx...' x |= x >> 1
+// b'1111xxxx...' x |= x >> 2
+// b'11111111...' x |= x >> 3
 func next2Power(x int64) int64 {
-	x--
+	x-- // when x == b'1000', output will be b'10000' if we do not minus 1
 	x |= x >> 1
 	x |= x >> 2
 	x |= x >> 4

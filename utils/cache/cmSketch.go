@@ -23,11 +23,14 @@ func newCmSketch(numCounters int64) *cmSketch {
 
 	// numCounters 一定是二次幂，也就一定是1后面有 n 个 0
 	numCounters = next2Power(numCounters)
-	// mask 一定是0111...111
+	// numCounters:  1000...000
+	// mask must be: 0111...111
+	// counter range: [0000...000, 0111...111]
 	sketch := &cmSketch{mask: uint64(numCounters - 1)}
 	source := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	// 初始化4行
+	// initialization
+	// (4 rows stand for 4 different hash functions, among which we will take the minimum value for a given idx hash)
 	// 0000,0000|0000,0000|0000,0000
 	// 0000,0000|0000,0000|0000,0000
 	// 0000,0000|0000,0000|0000,0000
@@ -76,10 +79,10 @@ func (s *cmSketch) Clear() {
 
 // 快速计算大于 X，且最接近 X 的二次幂
 // "bit smearing": leverage the right bit-shift ops to ensure that all the bits to the right of the first 1 are 1s:
-// b'1xxxxxxx...' x
-// b'11xxxxxx...' x |= x >> 1
-// b'1111xxxx...' x |= x >> 2
-// b'11111111...' x |= x >> 3
+// b'..0001xxxxxxx...' x
+// b'..00011xxxxxx...' x |= x >> 1
+// b'..0001111xxxx...' x |= x >> 2
+// b'..00011111111...' x |= x >> 3
 func next2Power(x int64) int64 {
 	x-- // when x == b'1000', output will be b'10000' if we do not minus 1
 	x |= x >> 1
